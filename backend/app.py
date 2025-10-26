@@ -4,6 +4,7 @@ import oracledb as cx_Oracle
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import re
 
 load_dotenv()
 
@@ -17,6 +18,10 @@ DB_HOST = os.getenv('DB_HOST', 'localhost')
 DB_PORT = os.getenv('DB_PORT', '1521')
 DB_SERVICE = os.getenv('DB_SERVICE', 'xepdb1')
 
+# Validation patterns
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PHONE_RE = re.compile(r"^[\d\+\-\s\(\)]{7,25}$")
+
 def get_db_connection():
     """Create and return a database connection"""
     try:
@@ -26,6 +31,22 @@ def get_db_connection():
     except Exception as e:
         print(f"Database connection error: {e}")
         return None
+
+def try_execute(cursor, sql, binds=None, silent_on_exists=False):
+    """Helper function to execute SQL safely"""
+    try:
+        if binds:
+            cursor.execute(sql, binds)
+        else:
+            cursor.execute(sql)
+        return True
+    except Exception as e:
+        msg = str(e).lower()
+        if silent_on_exists and ("already exists" in msg or "ora-00955" in msg):
+            return True
+        else:
+            print(f"SQL Error: {e}")
+            return False
 
 # ==================== INVENTORY ROUTES ====================
 
@@ -522,6 +543,22 @@ def add_supplier():
     try:
         cursor = conn.cursor()
         
+        # Validate input
+        if not data.get('name'):
+            return jsonify({'error': 'Name is required'}), 400
+        
+        if not data.get('email'):
+            return jsonify({'error': 'Email is required'}), 400
+        
+        if not EMAIL_RE.match(data['email']):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        if not data.get('phone'):
+            return jsonify({'error': 'Phone is required'}), 400
+        
+        if not PHONE_RE.match(data['phone']):
+            return jsonify({'error': 'Invalid phone format'}), 400
+        
         # Check for duplicates
         cursor.execute("""
             SELECT supplier_id FROM Suppliers
@@ -626,6 +663,11 @@ def add_customer():
     
     try:
         cursor = conn.cursor()
+        
+        # Validate phone if provided
+        if data.get('phone') and not PHONE_RE.match(data['phone']):
+            return jsonify({'error': 'Invalid phone format'}), 400
+        
         cursor.execute("""
             INSERT INTO Customers(name, phone, email, address) 
             VALUES(:1, :2, :3, :4)
@@ -718,6 +760,67 @@ def medicines_above_avg():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/reports/inventory-any-threshold', methods=['GET'])
+def meds_inventory_any():
+    """Get medicines with inventory greater than ANY min_threshold"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT m.medicine_id, m.name, i.qty, i.min_threshold
+            FROM Medicines m 
+            JOIN Inventory i ON m.medicine_id = i.medicine_id
+            WHERE i.qty > ANY (SELECT min_threshold FROM Inventory)
+            ORDER BY m.name
+        """
+        cursor.execute(query)
+        
+        medicines = []
+        for row in cursor.fetchall():
+            medicines.append({
+                'medicine_id': row[0],
+                'name': row[1],
+                'quantity': row[2],
+                'min_threshold': row[3]
+            })
+        
+        cursor.close()
+        conn.close()
+        return jsonify(medicines)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reports/union-intersect', methods=['GET'])
+def union_intersect_demo():
+    """Demonstrate UNION and INTERSECT operations"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        
+        # UNION: unique names from Suppliers and Customers
+        cursor.execute("SELECT name FROM Suppliers UNION SELECT name FROM Customers")
+        union_results = [row[0] for row in cursor.fetchall()]
+        
+        # INTERSECT: common names in both Suppliers and Customers
+        cursor.execute("SELECT name FROM Suppliers INTERSECT SELECT name FROM Customers")
+        intersect_results = [row[0] for row in cursor.fetchall()]
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'union_unique_names': union_results,
+            'intersect_common_names': intersect_results
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/reports/audit-log', methods=['GET'])
 def get_audit_log():
     """Get audit log entries"""
@@ -766,13 +869,428 @@ def setup_schema():
     try:
         cursor = conn.cursor()
         
-        # This would run your schema setup
-        # For safety, you might want to add authentication here
+        # Create tables
+        tables = [
+            """
+            CREATE TABLE Suppliers (
+                supplier_id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                name VARCHAR2(120) NOT NULL,
+                contact_email VARCHAR2(120) NOT NULL,
+                phone VARCHAR2(20) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT unique_supplier_entry UNIQUE (name,contact_email,phone)
+            )
+            """,
+            """
+            CREATE TABLE Customers (
+                customer_id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                name VARCHAR2(120) NOT NULL,
+                phone VARCHAR2(20),
+                email VARCHAR2(120),
+                address VARCHAR2(300),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE Medicines (
+                medicine_id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                name VARCHAR2(200) NOT NULL,
+                pharma_form VARCHAR2(50),
+                strength VARCHAR2(50),
+                unit_price NUMBER(10,2) DEFAULT 0,
+                supplier_id NUMBER,
+                expiry_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active CHAR(1) DEFAULT 'Y' CHECK (is_active IN ('Y','N')),
+                retired_at TIMESTAMP NULL,
+                CONSTRAINT fk_med_supplier FOREIGN KEY (supplier_id) REFERENCES Suppliers(supplier_id),
+                CONSTRAINT unique_medicine_entry UNIQUE (name, pharma_form, strength, expiry_date)
+            )
+            """,
+            """
+            CREATE TABLE Inventory (
+                medicine_id NUMBER PRIMARY KEY,
+                qty NUMBER DEFAULT 0,
+                min_threshold NUMBER DEFAULT 10,
+                CONSTRAINT fk_inv_med FOREIGN KEY(medicine_id) REFERENCES Medicines(medicine_id)
+            )
+            """,
+            """
+            CREATE TABLE Orders (
+                order_id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                order_date DATE DEFAULT SYSDATE,
+                customer_id NUMBER,
+                total_amount NUMBER(12,2),
+                status VARCHAR2(20),
+                CONSTRAINT fk_ord_cust FOREIGN KEY(customer_id) REFERENCES Customers(customer_id)
+            )
+            """,
+            """
+            CREATE TABLE Order_Items (
+                order_item_id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                order_id NUMBER,
+                medicine_id NUMBER,
+                quantity NUMBER,
+                unit_price NUMBER(10,2),
+                line_total NUMBER(12,2),
+                CONSTRAINT fk_oi_order FOREIGN KEY(order_id) REFERENCES Orders(order_id)
+            )
+            """,
+            """
+            CREATE TABLE Audit_Log (
+                audit_id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                action_by VARCHAR2(100),
+                action VARCHAR2(100),
+                object_name VARCHAR2(100),
+                details VARCHAR2(2000),
+                action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        ]
         
+        for table_sql in tables:
+            try_execute(cursor, table_sql, silent_on_exists=True)
+        
+        # Add price constraint
+        try:
+            cursor.execute("ALTER TABLE Medicines ADD (CONSTRAINT chk_price_nonneg CHECK (unit_price >= 0))")
+        except:
+            pass  # ignore if exists
+        
+        conn.commit()
         cursor.close()
         conn.close()
-        return jsonify({'message': 'Schema setup completed'}), 200
+        
+        return jsonify({'message': 'Schema setup completed successfully'}), 200
     except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/create-triggers', methods=['POST'])
+def create_triggers():
+    """Create database triggers"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        
+        triggers = [
+            """
+            CREATE OR REPLACE TRIGGER trg_med_before_ins
+            BEFORE INSERT OR UPDATE ON Medicines
+            FOR EACH ROW
+            DECLARE
+            BEGIN
+                IF :NEW.expiry_date IS NOT NULL AND :NEW.expiry_date < TRUNC(SYSDATE) THEN
+                    DBMS_OUTPUT.PUT_LINE('Warning: Medicine "' || :NEW.name || 
+                                 '" has an expired date (' || TO_CHAR(:NEW.expiry_date, 'YYYY-MM-DD') || ').');
+                END IF;
+            END;
+            """,
+            """
+            CREATE OR REPLACE TRIGGER trg_audit_orders
+            AFTER INSERT OR UPDATE OR DELETE ON Orders
+            FOR EACH ROW
+            BEGIN
+                IF INSERTING THEN
+                    INSERT INTO Audit_Log(action_by, action, object_name, details) VALUES(USER,'INSERT','ORDERS','Order placed or inserted');
+                ELSIF UPDATING THEN
+                    INSERT INTO Audit_Log(action_by, action, object_name, details) VALUES(USER,'UPDATE','ORDERS','Order updated');
+                ELSIF DELETING THEN
+                    INSERT INTO Audit_Log(action_by, action, object_name, details) VALUES(USER,'DELETE','ORDERS','Order deleted');
+                END IF;
+            END;
+            """,
+            """
+            CREATE OR REPLACE TRIGGER trg_audit_medicines
+            AFTER INSERT OR UPDATE OR DELETE ON Medicines
+            FOR EACH ROW
+            BEGIN
+                IF INSERTING THEN
+                    INSERT INTO Audit_Log(action_by, action, object_name, details) VALUES(USER,'INSERT','MEDICINES','Inserted ' || :NEW.name);
+                ELSIF UPDATING THEN
+                    INSERT INTO Audit_Log(action_by, action, object_name, details) VALUES(USER,'UPDATE','MEDICINES','Updated ' || :NEW.name);
+                ELSIF DELETING THEN
+                    INSERT INTO Audit_Log(action_by, action, object_name, details) VALUES(USER,'DELETE','MEDICINES','Deleted ' || :OLD.name);
+                END IF;
+            END;
+            """
+        ]
+        
+        for trigger_sql in triggers:
+            try_execute(cursor, trigger_sql)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Triggers created successfully'}), 200
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/create-procedures', methods=['POST'])
+def create_procedures():
+    """Create stored procedures"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        
+        procedure_sql = """
+        CREATE OR REPLACE PROCEDURE sp_place_order (
+            p_customer_id IN NUMBER,
+            p_items       IN "SYS"."ODCINUMBERLIST",
+            p_qtys        IN "SYS"."ODCINUMBERLIST"
+        ) IS
+            v_unit_price   NUMBER(10,2);
+            v_total        NUMBER(12,2) := 0;
+            v_line_total   NUMBER(12,2);
+            v_order_id     NUMBER;
+            v_stock        NUMBER;
+            v_expiry       DATE;
+        BEGIN
+            IF p_items.COUNT != p_qtys.COUNT THEN
+                RAISE_APPLICATION_ERROR(-20060, 'Items and quantities length mismatch');
+            END IF;
+
+            FOR i IN 1 .. p_items.COUNT LOOP
+                BEGIN
+                    SELECT unit_price, expiry_date
+                    INTO v_unit_price, v_expiry
+                    FROM Medicines
+                    WHERE medicine_id = p_items(i);
+                EXCEPTION
+                    WHEN NO_DATA_FOUND THEN
+                        RAISE_APPLICATION_ERROR(-20063, 'Medicine not found: ' || p_items(i));
+                END;
+
+                IF v_expiry IS NOT NULL AND v_expiry < TRUNC(SYSDATE) THEN
+                    RAISE_APPLICATION_ERROR(-20061, 'Cannot sell expired medicine id ' || p_items(i));
+                END IF;
+
+                BEGIN
+                    SELECT qty INTO v_stock
+                    FROM Inventory
+                    WHERE medicine_id = p_items(i)
+                    FOR UPDATE;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND THEN
+                        RAISE_APPLICATION_ERROR(-20064, 'Inventory row not found for medicine id ' || p_items(i));
+                END;
+
+                IF v_stock < p_qtys(i) THEN
+                    RAISE_APPLICATION_ERROR(-20062, 'Insufficient stock for medicine id ' || p_items(i));
+                END IF;
+
+                v_line_total := v_unit_price * p_qtys(i);
+                v_total := v_total + v_line_total;
+            END LOOP;
+
+            INSERT INTO Orders (customer_id, total_amount, status)
+            VALUES (p_customer_id, v_total, 'COMPLETED')
+            RETURNING order_id INTO v_order_id;
+
+            FOR i IN 1 .. p_items.COUNT LOOP
+                SELECT unit_price INTO v_unit_price FROM Medicines WHERE medicine_id = p_items(i);
+
+                INSERT INTO Order_Items (order_id, medicine_id, quantity, unit_price, line_total)
+                VALUES (v_order_id, p_items(i), p_qtys(i), v_unit_price, v_unit_price * p_qtys(i));
+
+                UPDATE Inventory
+                SET qty = qty - p_qtys(i)
+                WHERE medicine_id = p_items(i);
+            END LOOP;
+
+            INSERT INTO Audit_Log (action_by, action, object_name, details)
+            VALUES (USER, 'PROC', 'sp_place_order', 'Order ' || v_order_id || ' placed for customer ' || NVL(TO_CHAR(p_customer_id),'UNKNOWN'));
+
+            COMMIT;
+        EXCEPTION
+            WHEN OTHERS THEN
+                ROLLBACK;
+                RAISE;
+        END sp_place_order;
+        """
+        
+        try_execute(cursor, procedure_sql)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Stored procedures created successfully'}), 200
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/create-views', methods=['POST'])
+def create_views():
+    """Create database views"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        
+        view_sql = """
+        CREATE OR REPLACE VIEW vw_inventory_summary AS
+            SELECT m.medicine_id,
+                   NVL(m.name,'') AS name,
+                   NVL(m.pharma_form,'') AS pharma_form,
+                   NVL(m.strength,'') AS strength,
+                   NVL(m.unit_price,0) AS unit_price,
+                   NVL(i.qty,0) AS qty,
+                   m.expiry_date,
+                   NVL(m.is_active,'Y') AS is_active
+            FROM Medicines m LEFT JOIN Inventory i ON m.medicine_id = i.medicine_id
+        """
+        
+        try_execute(cursor, view_sql)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Views created successfully'}), 200
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/seed-data', methods=['POST'])
+def seed_data():
+    """Seed sample data"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Suppliers
+        suppliers = [
+            ("Cipla Ltd.", "sales@cipla.com", "+91-9876543210"),
+            ("Sun Pharma", "support@sunpharma.com", "+91-9123456780")
+        ]
+        
+        for name, email, phone in suppliers:
+            cursor.execute("""
+                SELECT supplier_id FROM Suppliers
+                WHERE LOWER(name) = LOWER(:1)
+                   OR LOWER(contact_email) = LOWER(:2)
+                   OR phone = :3
+            """, (name, email, phone))
+            if not cursor.fetchone():
+                try_execute(cursor, "INSERT INTO Suppliers(name, contact_email, phone) VALUES(:1,:2,:3)",
+                           (name, email, phone))
+        
+        conn.commit()
+        
+        # Customers
+        cursor.execute("""
+            SELECT customer_id FROM Customers
+            WHERE LOWER(name) = LOWER(:1)
+               OR LOWER(email) = LOWER(:2)
+        """, ("John Doe", "john@example.com"))
+        if not cursor.fetchone():
+            try_execute(cursor, "INSERT INTO Customers(name, phone, email, address) VALUES(:1,:2,:3,:4)",
+                       ("John Doe", "9998887776", "john@example.com", "23 Green Street, Vellore"))
+        
+        # Medicines
+        medicines = [
+            ("Paracetamol", "Tablet", "500 mg", 2.50, 1, "2026-02-15"),
+            ("Amoxicillin", "Capsule", "250 mg", 5.00, 2, "2025-12-01"),
+            ("OldSyrup", "Syrup", "100 ml", 40.00, 2, "2020-01-01")
+        ]
+        
+        for name, form, strength, price, sup, expiry in medicines:
+            cursor.execute("""
+                SELECT medicine_id FROM Medicines
+                WHERE LOWER(name) = LOWER(:1)
+                  AND LOWER(pharma_form) = LOWER(:2)
+                  AND LOWER(strength) = LOWER(:3)
+                  AND TO_CHAR(expiry_date, 'YYYY-MM-DD') = :4
+            """, (name, form, strength, expiry))
+            if not cursor.fetchone():
+                try_execute(cursor, """
+                    INSERT INTO Medicines(name, pharma_form, strength, unit_price, supplier_id, expiry_date)
+                    VALUES(:1,:2,:3,:4,:5,TO_DATE(:6,'YYYY-MM-DD'))
+                """, (name, form, strength, price, sup, expiry))
+        
+        conn.commit()
+        
+        # Inventory
+        cursor.execute("SELECT medicine_id FROM Medicines")
+        meds = [r[0] for r in cursor.fetchall()]
+        for mid in meds:
+            cursor.execute("SELECT 1 FROM Inventory WHERE medicine_id = :1", (mid,))
+            if not cursor.fetchone():
+                try_execute(cursor, "INSERT INTO Inventory(medicine_id, qty, min_threshold) VALUES(:1, :2, :3)",
+                           (mid, 50, 10))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Sample data seeded successfully'}), 200
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/cleanup', methods=['POST'])
+def cleanup_db():
+    """Cleanup database objects (DANGEROUS - for development only)"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Get confirmation from request body
+        data = request.json or {}
+        if not data.get('confirm'):
+            return jsonify({'error': 'Confirmation required. Send {"confirm": true} in request body.'}), 400
+        
+        stmts = [
+            "DROP TRIGGER trg_audit_medicines",
+            "DROP TRIGGER trg_audit_orders",
+            "DROP TRIGGER trg_med_before_ins",
+            "DROP PROCEDURE sp_place_order",
+            "DROP VIEW vw_inventory_summary",
+            "DROP TABLE Order_Items CASCADE CONSTRAINTS",
+            "DROP TABLE Orders CASCADE CONSTRAINTS",
+            "DROP TABLE Inventory CASCADE CONSTRAINTS",
+            "DROP TABLE Medicines CASCADE CONSTRAINTS",
+            "DROP TABLE Customers CASCADE CONSTRAINTS",
+            "DROP TABLE Suppliers CASCADE CONSTRAINTS",
+            "DROP TABLE Audit_Log CASCADE CONSTRAINTS"
+        ]
+        
+        results = []
+        for s in stmts:
+            try:
+                cursor.execute(s)
+                results.append(f"Dropped: {s}")
+            except Exception as e:
+                results.append(f"Could not drop: {s} -> {str(e)}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Cleanup attempted', 'results': results}), 200
+    except Exception as e:
+        if conn:
+            conn.rollback()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
