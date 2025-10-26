@@ -156,7 +156,7 @@ function App() {
                 transition={{ delay: 0.3 }}
                 className="text-4xl font-bold bg-gradient-to-r from-slate-800 to-blue-800 bg-clip-text text-transparent"
               >
-                Pharmacy Management System
+                Vellore Pharmacy
               </motion.h1>
               <motion.p
                 initial={{ opacity: 0 }}
@@ -174,10 +174,10 @@ function App() {
             transition={{ delay: 0.5 }}
             className="text-right"
           >
-            <div className="bg-white/60 backdrop-blur-sm rounded-xl px-4 py-2 border border-slate-200">
+            {/* <div className="bg-white/60 backdrop-blur-sm rounded-xl px-4 py-2 border border-slate-200">
               <p className="text-slate-700 font-semibold">Dashboard</p>
               <p className="text-sm text-slate-500">Real-time analytics</p>
-            </div>
+            </div> */}
           </motion.div>
         </div>
       </motion.header>
@@ -2223,8 +2223,7 @@ function EnhancedCustomersTab({ customers, onRefresh, showMessage }) {
 }
 
 // ========== ENHANCED REPORTS TAB ==========
-// ========== ENHANCED REPORTS TAB ==========
-// ========== ENHANCED REPORTS TAB ==========
+
 function EnhancedReportsTab({ showMessage, inventory }) {
   const [activeReport, setActiveReport] = useState("sales");
   const [salesData, setSalesData] = useState([]);
@@ -3442,77 +3441,223 @@ function EnhancedReportsTab({ showMessage, inventory }) {
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
             >
-              <h3 className="text-xl font-semibold mb-6 text-gray-800">
-                Audit Log (Recent 50 entries)
-              </h3>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-2">
+                <div>
+                  <h3 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-red-700 bg-clip-text text-transparent">
+                    🔍 System Audit Log
+                  </h3>
+                  <p className="text-slate-600 mt-2">
+                    Track all system activities and changes in real-time
+                  </p>
+                </div>
+                <div className="flex items-center space-x-4 mt-4 lg:mt-0">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-xl px-4 py-2 border border-slate-200">
+                    <p className="text-slate-700 font-semibold text-sm">
+                      Total Entries
+                    </p>
+                    <p className="text-slate-800 font-bold text-lg">
+                      {auditLog.length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {auditLog.length > 0 ? (
-                <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200">
-                          <th className="text-left py-4 px-6 text-gray-700 font-semibold">
-                            ID
-                          </th>
-                          <th className="text-left py-4 px-6 text-gray-700 font-semibold">
-                            User
-                          </th>
-                          <th className="text-left py-4 px-6 text-gray-700 font-semibold">
-                            Action
-                          </th>
-                          <th className="text-left py-4 px-6 text-gray-700 font-semibold">
-                            Object
-                          </th>
-                          <th className="text-left py-4 px-6 text-gray-700 font-semibold">
-                            Details
-                          </th>
-                          <th className="text-left py-4 px-6 text-gray-700 font-semibold">
-                            Time
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {auditLog.map((log) => (
-                          <motion.tr
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+                  {/* Header */}
+                  <div className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 p-3">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between">
+                      <div>
+                        <h4 className="text-lg font-semibold text-slate-800">
+                          Activity Timeline
+                        </h4>
+                        <p className="text-slate-600 text-sm mt-1">
+                          Showing {auditLog.length} entries
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-4 mt-4 lg:mt-0">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                          <span className="text-sm text-slate-600">INSERT</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                          <span className="text-sm text-slate-600">UPDATE</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                          <span className="text-sm text-slate-600">DELETE</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scrollable Container */}
+                  <div className="max-h-[600px] overflow-y-auto">
+                    {" "}
+                    {/* Extra Large */}
+                    <div className="p-3">
+                      <div className="space-y-3">
+                        {auditLog.map((log, index) => (
+                          <motion.div
                             key={log.audit_id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="border-b border-gray-100 hover:bg-gray-50"
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.1 }}
+                            className="bg-gradient-to-r from-slate-50 to-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-all duration-300"
                           >
-                            <td className="py-4 px-6">{log.audit_id}</td>
-                            <td className="py-4 px-6">{log.action_by}</td>
-                            <td className="py-4 px-6">
-                              <span
-                                className={`px-3 py-1 rounded-full text-sm ${
-                                  log.action === "INSERT"
-                                    ? "bg-green-100 text-green-800"
-                                    : log.action === "UPDATE"
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : log.action === "DELETE"
-                                    ? "bg-red-100 text-red-800"
-                                    : "bg-gray-100 text-gray-800"
-                                }`}
-                              >
-                                {log.action}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6">{log.object_name}</td>
-                            <td className="py-4 px-6">{log.details}</td>
-                            <td className="py-4 px-6">{log.action_time}</td>
-                          </motion.tr>
+                            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between">
+                              {/* Left Section - Main Info */}
+                              <div className="flex-1">
+                                <div className="flex items-start space-x-4">
+                                  {/* Action Icon */}
+                                  <div
+                                    className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
+                                      log.action === "INSERT"
+                                        ? "bg-green-100 text-green-600"
+                                        : log.action === "UPDATE"
+                                        ? "bg-yellow-100 text-yellow-600"
+                                        : log.action === "DELETE"
+                                        ? "bg-red-100 text-red-600"
+                                        : "bg-blue-100 text-blue-600"
+                                    }`}
+                                  >
+                                    {log.action === "INSERT" && (
+                                      <span className="text-lg">➕</span>
+                                    )}
+                                    {log.action === "UPDATE" && (
+                                      <span className="text-lg">✏️</span>
+                                    )}
+                                    {log.action === "DELETE" && (
+                                      <span className="text-lg">🗑️</span>
+                                    )}
+                                    {!["INSERT", "UPDATE", "DELETE"].includes(
+                                      log.action
+                                    ) && <span className="text-lg">⚡</span>}
+                                  </div>
+
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center space-x-3 mb-1">
+                                      <span
+                                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                          log.action === "INSERT"
+                                            ? "bg-green-100 text-green-700"
+                                            : log.action === "UPDATE"
+                                            ? "bg-yellow-100 text-yellow-700"
+                                            : log.action === "DELETE"
+                                            ? "bg-red-100 text-red-700"
+                                            : "bg-blue-100 text-blue-700"
+                                        }`}
+                                      >
+                                        {log.action}
+                                      </span>
+                                      <span className="text-slate-500 text-sm">
+                                        •
+                                      </span>
+                                      <span className="text-slate-600 text-sm font-medium">
+                                        {log.object_name}
+                                      </span>
+                                    </div>
+
+                                    <p className="text-slate-800 font-medium mb-1">
+                                      {log.details}
+                                    </p>
+
+                                    <div className="flex items-center space-x-4 text-sm text-slate-500">
+                                      <span className="flex items-center">
+                                        <span className="w-2 h-2 bg-slate-400 rounded-full mr-2"></span>
+                                        By: {log.action_by}
+                                      </span>
+                                      <span>•</span>
+                                      <span>{log.action_time}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Right Section - ID & Time */}
+                              <div className="lg:text-right mt-4 lg:mt-0 lg:pl-4">
+                                <div className="inline-flex flex-col items-end space-y-2">
+                                  <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-mono">
+                                    ID: {log.audit_id}
+                                  </span>
+                                  <span className="text-slate-400 text-xs">
+                                    {new Date(
+                                      log.action_time
+                                    ).toLocaleTimeString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer Stats */}
+                  <div className="bg-slate-50 border-t border-slate-200 p-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                      <div>
+                        <p className="text-slate-600 text-sm">Inserts</p>
+                        <p className="text-green-600 font-bold">
+                          {
+                            auditLog.filter((log) => log.action === "INSERT")
+                              .length
+                          }
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-600 text-sm">Updates</p>
+                        <p className="text-yellow-600 font-bold">
+                          {
+                            auditLog.filter((log) => log.action === "UPDATE")
+                              .length
+                          }
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-600 text-sm">Deletes</p>
+                        <p className="text-red-600 font-bold">
+                          {
+                            auditLog.filter((log) => log.action === "DELETE")
+                              .length
+                          }
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-600 text-sm">Others</p>
+                        <p className="text-blue-600 font-bold">
+                          {
+                            auditLog.filter(
+                              (log) =>
+                                !["INSERT", "UPDATE", "DELETE"].includes(
+                                  log.action
+                                )
+                            ).length
+                          }
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="glass-card p-12 text-center rounded-2xl"
+                  className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-lg"
                 >
-                  <p className="text-gray-600 text-lg">
-                    No audit log entries found
+                  <div className="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                    <span className="text-slate-400 text-3xl">📝</span>
+                  </div>
+                  <h4 className="text-xl font-semibold text-slate-700 mb-2">
+                    No Audit Log Entries
+                  </h4>
+                  <p className="text-slate-500 max-w-md mx-auto">
+                    System activities and changes will appear here once they
+                    occur. The audit log tracks all database operations
+                    automatically.
                   </p>
                 </motion.div>
               )}
@@ -3610,7 +3755,7 @@ function EnhancedAdminTab({ showMessage, onRefresh }) {
       label: "📋 Create Stored Procedures",
       description: "Set up stored procedures for order processing",
       endpoint: "create-procedures",
-      color: "green",
+      color: "yellow",
       confirm: false,
     },
     {
@@ -3626,7 +3771,7 @@ function EnhancedAdminTab({ showMessage, onRefresh }) {
       label: "🌱 Seed Sample Data",
       description: "Populate database with sample data for testing",
       endpoint: "seed-data",
-      color: "emerald",
+      color: "green",
       confirm: false,
     },
     {
