@@ -2,7 +2,7 @@
 
 A comprehensive, full-stack web application designed for efficient pharmacy operations. This system provides robust tools for inventory control, sales processing, supplier management, and business analytics, featuring a modern, animated user interface.
 
-## 🚀 Features
+##  Features
 
 ### 📦 Inventory Management
 
